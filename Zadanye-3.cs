@@ -1,132 +1,380 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 
 namespace BankingSystem
 {
-	// 1. Абстрактный базовый класс счета
+	// ===================== МОДЕЛЬ =====================
+
 	public abstract class BankAccount
 	{
-		// Поле баланса скрыто от прямого внешнего изменения (инкапсуляция),
-		// но доступно для классов-наследников через protected
+		private static int nextNumber = 1001;   // общий счётчик номеров для всех счетов
+
 		protected decimal balance;
+		private readonly List<string> history = new List<string>();
 
-		// Свойство только для чтения баланса
+		public int Number { get; }
+		public string Owner { get; }
 		public decimal Balance => balance;
+		public IReadOnlyList<string> History => history;
 
-		// Конструктор базового класса
-		public BankAccount(decimal initialBalance)
+		// Каждый наследник сообщает, как называется его тип счёта
+		public abstract string TypeName { get; }
+
+		protected BankAccount(string owner, decimal initialBalance)
 		{
+			if (string.IsNullOrWhiteSpace(owner))
+			{
+				throw new ArgumentException("Имя владельца не может быть пустым.");
+			}
 			if (initialBalance < 0)
 			{
 				throw new ArgumentException("Начальный баланс не может быть отрицательным.");
 			}
+
+			Owner = owner.Trim();
 			balance = initialBalance;
+			Number = nextNumber++;
+			AddHistory($"Открыт счёт. Баланс: {Money(balance)}");
 		}
 
-		// Обычный метод пополнения счета (общий для всех видов счетов)
-		public virtual void Deposit(decimal amount)
+		public static string Money(decimal value) => $"{value:N2} сом";
+
+		protected void AddHistory(string text)
+		{
+			history.Add($"{DateTime.Now:dd.MM.yyyy HH:mm:ss}  {text}");
+		}
+
+		public virtual bool Deposit(decimal amount)
 		{
 			if (amount <= 0)
 			{
 				Console.WriteLine("[Ошибка] Сумма пополнения должна быть больше 0.");
-				return;
+				return false;
 			}
 			balance += amount;
-			Console.WriteLine($"[Пополнение] Зачислено: {amount:C}. Текущий баланс: {balance:C}");
+			AddHistory($"Пополнение +{Money(amount)}. Баланс: {Money(balance)}");
+			Console.WriteLine($"[Пополнение] Зачислено: {Money(amount)}. Текущий баланс: {Money(balance)}");
+			return true;
 		}
 
-		// Абстрактный метод снятия — у каждого типа счета своя логика
-		public abstract void Withdraw(decimal amount);
+		// true — снятие прошло, false — отклонено
+		public abstract bool Withdraw(decimal amount);
+
+		public override string ToString()
+		{
+			return $"№{Number} | {TypeName,-14} | {Owner,-15} | {Money(balance),15}";
+		}
 	}
 
-	// 2. Сберегательный счет (SavingsAccount)
 	public class SavingsAccount : BankAccount
 	{
-		// Поле для хранения неснижаемого минимального остатка
 		private readonly decimal minBalance;
 
-		public SavingsAccount(decimal initialBalance, decimal minBalance) : base(initialBalance)
+		public override string TypeName => "Сберегательный";
+
+		public SavingsAccount(string owner, decimal initialBalance, decimal minBalance)
+			: base(owner, initialBalance)
 		{
+			if (initialBalance < minBalance)
+			{
+				throw new ArgumentException($"Начальный баланс сберегательного счёта не может быть меньше {Money(minBalance)}.");
+			}
 			this.minBalance = minBalance;
 		}
 
-		// Реализация абстрактного метода снятия денег с проверкой остатка
-		public override void Withdraw(decimal amount)
+		public override bool Withdraw(decimal amount)
 		{
 			if (amount <= 0)
 			{
 				Console.WriteLine("[Ошибка] Сумма снятия должна быть больше 0.");
-				return;
+				return false;
 			}
 
 			if (balance - amount < minBalance)
 			{
-				Console.WriteLine($"[Отклонено] Ошибка снятия! На сберегательном счете должен оставаться минимальный остаток не менее {minBalance:C}. Текущий баланс: {balance:C}");
+				Console.WriteLine($"[Отклонено] На сберегательном счёте должен оставаться минимальный остаток не менее {Money(minBalance)}. Текущий баланс: {Money(balance)}");
+				return false;
 			}
-			else
-			{
-				balance -= amount;
-				Console.WriteLine($"[Снятие] Со сберегательного счета снято: {amount:C}. Остаток: {balance:C}");
-			}
+
+			balance -= amount;
+			AddHistory($"Снятие -{Money(amount)}. Баланс: {Money(balance)}");
+			Console.WriteLine($"[Снятие] Со сберегательного счёта снято: {Money(amount)}. Остаток: {Money(balance)}");
+			return true;
 		}
 	}
 
-	// 3. Расчетный счет (CheckingAccount)
 	public class CheckingAccount : BankAccount
 	{
-		// Фиксированная плата (комиссия) за процедуру снятия
 		private readonly decimal serviceFee;
 
-		public CheckingAccount(decimal initialBalance, decimal serviceFee) : base(initialBalance)
+		public override string TypeName => "Расчётный";
+
+		public CheckingAccount(string owner, decimal initialBalance, decimal serviceFee)
+			: base(owner, initialBalance)
 		{
 			this.serviceFee = serviceFee;
 		}
 
-		// Реализация абстрактного метода снятия денег с удержанием комиссии
-		public override void Withdraw(decimal amount)
+		public override bool Withdraw(decimal amount)
 		{
 			if (amount <= 0)
 			{
 				Console.WriteLine("[Ошибка] Сумма снятия должна быть больше 0.");
-				return;
+				return false;
 			}
 
 			decimal totalDeduction = amount + serviceFee;
 
 			if (balance < totalDeduction)
 			{
-				Console.WriteLine($"[Отклонено] Недостаточно средств для снятия {amount:C} с учетом комиссии {serviceFee:C}. Текущий баланс: {balance:C}");
+				Console.WriteLine($"[Отклонено] Недостаточно средств для снятия {Money(amount)} с учётом комиссии {Money(serviceFee)}. Текущий баланс: {Money(balance)}");
+				return false;
 			}
-			else
-			{
-				balance -= totalDeduction;
-				Console.WriteLine($"[Снятие] С расчетного счета снято: {amount:C} (комиссия: {serviceFee:C}). Остаток: {balance:C}");
-			}
+
+			balance -= totalDeduction;
+			AddHistory($"Снятие -{Money(amount)} (комиссия {Money(serviceFee)}). Баланс: {Money(balance)}");
+			Console.WriteLine($"[Снятие] С расчётного счёта снято: {Money(amount)} (комиссия: {Money(serviceFee)}). Остаток: {Money(balance)}");
+			return true;
 		}
 	}
 
+	// ===================== ПРОГРАММА =====================
+
 	class Program
 	{
+		// Параметры банка (можно менять)
+		const decimal SavingsMinBalance = 1000m;
+		const decimal CheckingFee = 50m;
+
+		static readonly List<BankAccount> accounts = new List<BankAccount>();
+
 		static void Main(string[] args)
 		{
-			Console.OutputEncoding = System.Text.Encoding.UTF8;
-			Console.WriteLine("=== СИСТЕМА УПРАВЛЕНИЯ БАНКОВСКИМИ СЧЕТАМИ ===\n");
+			Console.OutputEncoding = Encoding.UTF8;
+			Console.InputEncoding = Encoding.UTF8;
 
-			// 1. Тестируем Сберегательный счет (Старт: 5000, минимальный остаток: 1000)
-			Console.WriteLine("--- 1. Демонстрация Сберегательного счета ---");
-			SavingsAccount savings = new SavingsAccount(5000, 1000);
-			savings.Deposit(1000);  // Баланс станет: 6000
-			savings.Withdraw(4500); // Успех (Остаток: 1500 >= 1000)
-			savings.Withdraw(1000); // Ошибка (Остаток стал бы 500 < 1000)
-			Console.WriteLine();
+			Console.WriteLine("=== СИСТЕМА УПРАВЛЕНИЯ БАНКОВСКИМИ СЧЕТАМИ ===");
 
-			// 2. Тестируем Расчетный счет (Старт: 3000, комиссия снятия: 50)
-			Console.WriteLine("--- 2. Демонстрация Расчетного счета ---");
-			CheckingAccount checking = new CheckingAccount(3000, 50);
-			checking.Deposit(500);   // Баланс станет: 3500
-			checking.Withdraw(1000); // Снимет 1000 + 50 комиссии = 1050 (Остаток: 2450)
-			checking.Withdraw(2500); // Ошибка (Нужно 2550, а на балансе всего 2450)
+			bool running = true;
+			while (running)
+			{
+				ShowMenu();
+				string choice = ReadLine("Ваш выбор: ");
+				Console.WriteLine();
 
-			Console.WriteLine("\n=== ТЕСТИРОВАНИЕ УСПЕШНО ЗАВЕРШЕНО ===");
+				switch (choice)
+				{
+					case "1": CreateAccount(); break;
+					case "2": ShowAccounts(); break;
+					case "3": DoDeposit(); break;
+					case "4": DoWithdraw(); break;
+					case "5": DoTransfer(); break;
+					case "6": ShowHistory(); break;
+					case "7": LoadDemoData(); break;
+					case "0": running = false; break;
+					default: Console.WriteLine("[Ошибка] Нет такого пункта меню."); break;
+				}
+
+				if (running)
+				{
+					Console.WriteLine("\nНажмите Enter, чтобы продолжить...");
+					Console.ReadLine();
+				}
+			}
+
+			Console.WriteLine("До свидания!");
+		}
+
+		static void ShowMenu()
+		{
+			Console.Clear();
+			Console.WriteLine("=== ГЛАВНОЕ МЕНЮ ===");
+			Console.WriteLine("1. Открыть счёт");
+			Console.WriteLine("2. Показать все счета");
+			Console.WriteLine("3. Пополнить счёт");
+			Console.WriteLine("4. Снять деньги");
+			Console.WriteLine("5. Перевод между счетами");
+			Console.WriteLine("6. История операций по счёту");
+			Console.WriteLine("7. Добавить демо-счета");
+			Console.WriteLine("0. Выход");
+			Console.WriteLine("--------------------");
+		}
+
+		// ---------- Пункты меню ----------
+
+		static void CreateAccount()
+		{
+			Console.WriteLine("--- Открытие счёта ---");
+			Console.WriteLine("1. Сберегательный (минимальный остаток " + BankAccount.Money(SavingsMinBalance) + ")");
+			Console.WriteLine("2. Расчётный (комиссия за снятие " + BankAccount.Money(CheckingFee) + ")");
+			string type = ReadLine("Тип счёта: ");
+
+			if (type != "1" && type != "2")
+			{
+				Console.WriteLine("[Ошибка] Неверный тип счёта.");
+				return;
+			}
+
+			string owner = ReadLine("Имя владельца: ");
+			decimal initial = ReadDecimal("Начальный баланс: ");
+
+			try
+			{
+				BankAccount account = type == "1"
+					? new SavingsAccount(owner, initial, SavingsMinBalance)
+					: new CheckingAccount(owner, initial, CheckingFee);
+
+				accounts.Add(account);
+				Console.WriteLine($"[Успех] Счёт открыт: {account}");
+			}
+			catch (ArgumentException ex)
+			{
+				// Конструкторы бросают исключения при некорректных данных
+				Console.WriteLine($"[Ошибка] {ex.Message}");
+			}
+		}
+
+		static void ShowAccounts()
+		{
+			Console.WriteLine("--- Список счетов ---");
+			if (accounts.Count == 0)
+			{
+				Console.WriteLine("Счетов пока нет.");
+				return;
+			}
+
+			foreach (BankAccount account in accounts)
+			{
+				Console.WriteLine(account);
+			}
+			Console.WriteLine($"Всего счетов: {accounts.Count}");
+		}
+
+		static void DoDeposit()
+		{
+			Console.WriteLine("--- Пополнение ---");
+			BankAccount account = ChooseAccount("Номер счёта: ");
+			if (account == null) return;
+
+			decimal amount = ReadDecimal("Сумма пополнения: ");
+			account.Deposit(amount);
+		}
+
+		static void DoWithdraw()
+		{
+			Console.WriteLine("--- Снятие ---");
+			BankAccount account = ChooseAccount("Номер счёта: ");
+			if (account == null) return;
+
+			decimal amount = ReadDecimal("Сумма снятия: ");
+			account.Withdraw(amount);   // поведение зависит от типа счёта (полиморфизм)
+		}
+
+		static void DoTransfer()
+		{
+			Console.WriteLine("--- Перевод ---");
+			BankAccount from = ChooseAccount("Номер счёта-отправителя: ");
+			if (from == null) return;
+
+			BankAccount to = ChooseAccount("Номер счёта-получателя: ");
+			if (to == null) return;
+
+			if (from == to)
+			{
+				Console.WriteLine("[Ошибка] Нельзя переводить на тот же счёт.");
+				return;
+			}
+
+			decimal amount = ReadDecimal("Сумма перевода: ");
+
+			// Сначала снимаем: если у отправителя правила не позволяют, деньги не уйдут
+			if (from.Withdraw(amount))
+			{
+				to.Deposit(amount);
+				Console.WriteLine($"[Перевод] {BankAccount.Money(amount)}: №{from.Number} → №{to.Number}");
+			}
+			else
+			{
+				Console.WriteLine("[Перевод отменён]");
+			}
+		}
+
+		static void ShowHistory()
+		{
+			Console.WriteLine("--- История операций ---");
+			BankAccount account = ChooseAccount("Номер счёта: ");
+			if (account == null) return;
+
+			Console.WriteLine($"Счёт №{account.Number} ({account.TypeName}), владелец: {account.Owner}");
+			foreach (string line in account.History)
+			{
+				Console.WriteLine("  " + line);
+			}
+		}
+
+		static void LoadDemoData()
+		{
+			accounts.Add(new SavingsAccount("Айбек", 5000m, SavingsMinBalance));
+			accounts.Add(new CheckingAccount("Айгерим", 3000m, CheckingFee));
+			Console.WriteLine("[Успех] Добавлены 2 демо-счёта.");
+			ShowAccounts();
+		}
+
+		// ---------- Вспомогательные методы ввода ----------
+
+		static string ReadLine(string prompt)
+		{
+			Console.Write(prompt);
+			return (Console.ReadLine() ?? "").Trim();
+		}
+
+		// Повторяет запрос, пока пользователь не введёт корректное число
+		static decimal ReadDecimal(string prompt)
+		{
+			while (true)
+			{
+				string input = ReadLine(prompt);
+
+				// Принимаем и запятую, и точку в качестве разделителя
+				if (decimal.TryParse(input, NumberStyles.Number, CultureInfo.CurrentCulture, out decimal value) ||
+					decimal.TryParse(input, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+				{
+					return value;
+				}
+
+				Console.WriteLine("[Ошибка] Введите число (например, 1500 или 250,50).");
+			}
+		}
+
+		// Запрашивает номер счёта и ищет его в списке; null, если не найден
+		static BankAccount ChooseAccount(string prompt)
+		{
+			if (accounts.Count == 0)
+			{
+				Console.WriteLine("Счетов пока нет. Сначала откройте счёт (пункт 1 или 7).");
+				return null;
+			}
+
+			foreach (BankAccount a in accounts)
+			{
+				Console.WriteLine("  " + a);
+			}
+
+			string input = ReadLine(prompt);
+			if (!int.TryParse(input, out int number))
+			{
+				Console.WriteLine("[Ошибка] Номер счёта должен быть числом.");
+				return null;
+			}
+
+			BankAccount found = accounts.Find(a => a.Number == number);
+			if (found == null)
+			{
+				Console.WriteLine("[Ошибка] Счёт с таким номером не найден.");
+			}
+			return found;
 		}
 	}
 }
