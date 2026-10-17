@@ -75,13 +75,19 @@ namespace BankingSystem
 		public override string TypeName => "Сберегательный";
 
 		public SavingsAccount(string owner, decimal initialBalance, decimal minBalance)
-			: base(owner, initialBalance)
+			: base(owner, CheckInitialBalance(initialBalance, minBalance))
 		{
-			if (initialBalance < minBalance)
+			this.minBalance = minBalance;
+		}
+
+		// Выполняется ДО конструктора базового класса, чтобы неудачная попытка не "съедала" номер счёта
+		private static decimal CheckInitialBalance(decimal initialBalance, decimal minBalance)
+		{
+			if (initialBalance >= 0 && initialBalance < minBalance)
 			{
 				throw new ArgumentException($"Начальный баланс сберегательного счёта не может быть меньше {Money(minBalance)}.");
 			}
-			this.minBalance = minBalance;
+			return initialBalance;
 		}
 
 		public override bool Withdraw(decimal amount)
@@ -223,7 +229,7 @@ namespace BankingSystem
 			try
 			{
 				BankAccount account = type == "1"
-					? new SavingsAccount(owner, initial, SavingsMinBalance)
+					? (BankAccount)new SavingsAccount(owner, initial, SavingsMinBalance)
 					: new CheckingAccount(owner, initial, CheckingFee);
 
 				accounts.Add(account);
